@@ -11,34 +11,40 @@ public abstract class Piece
     public Colour colour;
     protected Colour enemyColour;
     public Type type;
-    //Index in piece positions list in board
-    public int pieceIndex;
 
-    protected Piece(Colour colour, int index)
+    public bool moved = false;
+    //Index in piece positions list in board
+    private byte piecePos;
+    public Vector2Int Position{
+        get { return Moves.ToVec2(piecePos);}
+        set { piecePos = Moves.FromVec2(value);}
+    }
+
+    protected Piece(Colour colour, Vector2Int position)
     {
         this.colour = colour;
-        pieceIndex = index;
+        Position = position;
         enemyColour = colour == Colour.WHITE ? Colour.BLACK : Colour.WHITE;
     }
 
     public abstract Moves GetMoves(Vector2Int position, bool filterChecks = true);
 
-    public static Piece Create(Colour colour, Type type, int index)
+    public static Piece Create(Colour colour, Type type, Vector2Int position)
     {
         switch (type)
         {
             case Type.PAWN:
-                return new Pawn(colour, index);
+                return new Pawn(colour, position);
             case Type.BISHOP:
-                return new Bishop(colour, index);
+                return new Bishop(colour, position);
             case Type.KNIGHT:
-                return new Knight(colour, index);
+                return new Knight(colour, position);
             case Type.ROOK:
-                return new Rook(colour, index);
+                return new Rook(colour, position);
             case Type.QUEEN:
-                return new Queen(colour, index);
+                return new Queen(colour, position);
             case Type.KING:
-                return new King(colour, index);
+                return new King(colour, position);
         }
 
         return null;
@@ -66,6 +72,30 @@ public abstract class Piece
         return false;
     }
 
+    protected static bool KingInCheck(Colour colour, Vector2Int position)
+    {
+        foreach(Type type in Enum.GetValues(typeof(Type)))
+        {
+            if(type == Type.NONE)
+                continue;
+
+            Piece p = Piece.Create(colour, type, position);
+            Moves kingMoves = p.GetMoves(position, false);
+
+            if(kingMoves.capturePositions != null)
+            {
+                foreach(byte b in kingMoves.capturePositions)
+                {
+                    Vector2Int capturePos = Moves.ToVec2(b);
+                    if(Board.board[capturePos.x, capturePos.y].type == type)
+                        return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     protected static Moves FilterMoves(Colour colour, Moves moves)
     {
         Moves newMoves = new Moves(moves);
@@ -73,36 +103,11 @@ public abstract class Piece
         for(int i = 0; i < moves.Count; i++)
         {
             Vector2Int move = moves[i];
-            Board.MakeMove(moves.StartPos, move);
-            foreach(Type type in Enum.GetValues(typeof(Type)))
-            {
-                if(type == Type.NONE)
-                    continue;
+            Board.MakeMove(moves.StartPos, move, false);
+            
+            if(KingInCheck(colour, Board.kingPositions[(int)colour]))
+                newMoves.Remove(move);
 
-                Piece p = Piece.Create(colour, type, -1);
-                Moves kingMoves = p.GetMoves(Board.kingPositions[(int)colour], false);
-
-                bool foundCaptureMove = false;
-                if(kingMoves.capturePositions != null)
-                {
-                    foreach(byte b in kingMoves.capturePositions)
-                    {
-                        Vector2Int capturePos = Moves.ToVec2(b);
-                        if(Board.board[capturePos.x, capturePos.y].type == type)
-                        {
-                            Debug.Log("Capture at " + capturePos + " by " + type);
-                            foundCaptureMove = true;
-                            break;
-                        }
-                    }
-                }
-
-                if(foundCaptureMove)
-                {
-                    newMoves.Remove(move);
-                    break;
-                }
-            }
             Board.UnmakeMove();
         }
 
@@ -137,8 +142,8 @@ public struct Moves
 
     public Vector2Int StartPos
     {
-        get { return new Vector2Int(startPos & 0xF, (startPos & 0xF0) >> 4); }
-        set { startPos = (byte)((value.x & 0xF) | ((value.y & 0xF) << 4)); }
+        get { return ToVec2(startPos); }
+        set { startPos = FromVec2(value); }
     }
 
     public int Count
@@ -148,8 +153,8 @@ public struct Moves
 
     public Vector2Int this[int index]
     {
-        get { return new Vector2Int(_endPositions[index] & 0xF, ((_endPositions[index] & 0xF0) >> 4)); }
-        set { _endPositions[index] = (byte)((value.x & 0xF) | ((value.y & 0xF) << 4)); }
+        get { return ToVec2(_endPositions[index]); }
+        set { _endPositions[index] = FromVec2(value); }
     }
 
     public void Add(Vector2Int pos)
@@ -157,13 +162,13 @@ public struct Moves
         if(_endPositions == null)
             _endPositions = new List<byte>();
 
-        _endPositions.Add((byte)((pos.x & 0xF) | ((pos.y & 0xF) << 4)));
+        _endPositions.Add(FromVec2(pos));
     }
 
     public void Remove(Vector2Int pos)
     {
-        _endPositions.Remove((byte)((pos.x & 0xF) | ((pos.y & 0xF) << 4)));
-        //capturePositions.Remove((byte)((pos.x & 0xF) | ((pos.y & 0xF) << 4)));
+        _endPositions.Remove(FromVec2(pos));
+        //capturePositions.Remove(FromVec2(pos));
     }
 
     public void AddCapturePosition(Vector2Int pos)
@@ -171,14 +176,14 @@ public struct Moves
         if(capturePositions == null)
             capturePositions = new List<byte>();
 
-        capturePositions.Add((byte)((pos.x & 0xF) | ((pos.y & 0xF) << 4)));
+        capturePositions.Add(FromVec2(pos));
     }
 
     public bool Contains(Vector2Int pos)
     {
         if (_endPositions == null)
             return false;
-        byte posByte = (byte)((pos.x & 0xF) | ((pos.y & 0xF) << 4));
+        byte posByte = FromVec2(pos);
         return _endPositions.Contains(posByte);
     }
 
@@ -186,11 +191,16 @@ public struct Moves
     {
         return new Vector2Int(b & 0xF, ((b & 0xF0) >> 4));
     }
+
+    public static byte FromVec2(Vector2Int vec)
+    {
+        return (byte)((vec.x & 0xF) | ((vec.y & 0xF) << 4));
+    }
 }
 
 public class Pawn : Piece
 {
-    public Pawn(Colour colour, int index) : base(colour, index)
+    public Pawn(Colour colour, Vector2Int position) : base(colour, position)
     {
         type = Type.PAWN;
         this.colour = colour;
@@ -200,19 +210,19 @@ public class Pawn : Piece
         Moves moves = new Moves(position);
         Vector2Int dir = colour == Colour.WHITE ? Vector2Int.down : Vector2Int.up;
 
-        //Check if pawn can move 2 squares forward
-        if (position.y == 6 && colour == Colour.WHITE)
-        {
-            AddMoveIfValid(position + dir * 2, ref moves);
-        }
-
-        if (position.y == 1 && colour == Colour.BLACK)
-        {
-            AddMoveIfValid(position + dir * 2, ref moves);
-        }
-
         //Check if pawn can move 1 square forward
-        AddMoveIfValid(position + dir, ref moves);
+        bool canMoveForward = AddMoveIfValid(position + dir, ref moves);
+
+        //Check if pawn can move 2 squares forward
+        if (canMoveForward && position.y == 6 && colour == Colour.WHITE)
+        {
+            AddMoveIfValid(position + dir * 2, ref moves);
+        }
+
+        if (canMoveForward && position.y == 1 && colour == Colour.BLACK)
+        {
+            AddMoveIfValid(position + dir * 2, ref moves);
+        }
 
         //Check if pawn can go left
         AddMoveIfEnemy(position + dir + Vector2Int.left, ref moves, enemyColour);
@@ -229,7 +239,7 @@ public class Pawn : Piece
 
 public class Bishop : Piece
 {
-    public Bishop(Colour colour, int index) : base(colour, index)
+    public Bishop(Colour colour, Vector2Int position) : base(colour, position)
     {
         type = Type.BISHOP;
         this.colour = colour;
@@ -270,7 +280,7 @@ public class Bishop : Piece
 
 public class Knight : Piece
 {
-    public Knight(Colour colour, int index) : base(colour, index)
+    public Knight(Colour colour, Vector2Int position) : base(colour, position)
     {
         type = Type.KNIGHT;
         this.colour = colour;
@@ -297,7 +307,7 @@ public class Knight : Piece
 
 public class Rook : Piece
 {
-    public Rook(Colour colour, int index) : base(colour, index)
+    public Rook(Colour colour, Vector2Int position) : base(colour, position)
     {
         type = Type.ROOK;
         this.colour = colour;
@@ -339,7 +349,7 @@ public class Rook : Piece
 
 public class Queen : Piece
 {
-    public Queen(Colour colour, int index) : base(colour, index)
+    public Queen(Colour colour, Vector2Int position) : base(colour, position)
     {
         type = Type.QUEEN;
         this.colour = colour;
@@ -404,7 +414,7 @@ public class Queen : Piece
 
 public class King : Piece
 {
-    public King(Colour colour, int index) : base(colour, index)
+    public King(Colour colour, Vector2Int position) : base(colour, position)
     {
         type = Type.KING;
         this.colour = colour;
@@ -421,6 +431,51 @@ public class King : Piece
 
                 bool addedMove = AddMoveIfValid(position + Vector2Int.left * x + Vector2Int.up * y, ref moves) ||
                 AddMoveIfEnemy(position + Vector2Int.left * x + Vector2Int.up * y, ref moves, enemyColour);
+            }
+        }
+
+        //Castling
+        if(!moved && filterChecks && !KingInCheck(colour, Position))
+        {
+            int yPos = Position.y;
+            //Left
+            Piece leftRook = Board.board[0, yPos];
+            if(leftRook != null && leftRook.type == Type.ROOK && !leftRook.moved)
+            {
+                bool canCastle = true;
+                for(int x = Position.x - 1; x > 0; x--)
+                {
+                    if(Board.board[x, yPos] != null || KingInCheck(colour, new Vector2Int(x, yPos)))
+                    {
+                        canCastle = false;
+                        break;
+                    }
+                }
+
+                if(canCastle)
+                {
+                    moves.Add(new Vector2Int(0, yPos));
+                }
+            }
+
+            //Right
+            Piece rightRook = Board.board[7, yPos];
+            if(rightRook != null && rightRook.type == Type.ROOK && !rightRook.moved)
+            {
+                bool canCastle = true;
+                for(int x = Position.x + 1; x < 7; x++)
+                {
+                    if(Board.board[x, yPos] != null || KingInCheck(colour, new Vector2Int(x, yPos)))
+                    {
+                        canCastle = false;
+                        break;
+                    }
+                }
+
+                if(canCastle)
+                {
+                    moves.Add(new Vector2Int(7, yPos));
+                }
             }
         }
         

@@ -101,6 +101,11 @@ public class BoardUI : MonoBehaviour
 
         if(currentPossibleMoves.Contains(boardCoord))
         {
+            if(Board.board[boardCoord.x, boardCoord.y] != null)
+            {
+                Destroy(pieces[boardCoord.x, boardCoord.y].gameObject);
+            }
+
             Board.MakeMove(startDragPos, boardCoord);
 
             draggingPiece.transform.position = Board.PositionFromCoord(boardCoord);

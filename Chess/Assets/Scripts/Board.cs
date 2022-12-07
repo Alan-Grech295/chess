@@ -70,7 +70,7 @@ public static class Board
 
     public static Distance[,] distanceToEdge;
 
-    public static List<Vector2Int>[] piecePositions;
+    public static List<Piece>[] pieces;
     public static Vector2Int[] kingPositions;
 
     private static MoveInfo lastMove;
@@ -98,9 +98,9 @@ public static class Board
         }
 
         kingPositions = new Vector2Int[2];
-        piecePositions = new List<Vector2Int>[2];
-        piecePositions[0] = new List<Vector2Int>();
-        piecePositions[1] = new List<Vector2Int>();
+        pieces = new List<Piece>[2];
+        pieces[0] = new List<Piece>();
+        pieces[1] = new List<Piece>();
 
         InitializeBoardFromFEN(startFEN);
     }
@@ -159,8 +159,8 @@ public static class Board
                     {
                         kingPositions[(int)colour] = new Vector2Int(file, rank);
                     }
-                    board[file, rank] = Piece.Create(colour, type, piecePositions[(int)colour].Count);
-                    piecePositions[(int)colour].Add(new Vector2Int(file, rank));
+                    board[file, rank] = Piece.Create(colour, type, new Vector2Int(file, rank));
+                    pieces[(int)colour].Add(board[file, rank]);
 
                     file++;
                 }
@@ -184,7 +184,7 @@ public static class Board
         return new Vector2Int(7 - file, 7 - rank);
     }
 
-    public static void MakeMove(Vector2Int start, Vector2Int end)
+    public static void MakeMove(Vector2Int start, Vector2Int end, bool commit = true)
     {
         Piece piece = board[start.x, start.y];
 
@@ -193,7 +193,19 @@ public static class Board
             kingPositions[(int)piece.colour] = end;
         }
 
-        lastMove = new MoveInfo(start, end, piece, board[end.x, end.y]);
+        if(!commit)
+        {
+            lastMove = new MoveInfo(start, end, piece, board[end.x, end.y]);
+        }
+        else
+        {
+            piece.moved = true;
+            piece.Position = end;
+            if(board[end.x, end.y] != null)
+            {
+                CapturePiece(end);
+            }
+        }
 
         board[end.x, end.y] = piece;
         board[start.x, start.y] = null;
@@ -202,11 +214,19 @@ public static class Board
     public static void UnmakeMove()
     {
         board[lastMove.start.x, lastMove.start.y] = lastMove.movingPiece;
+        board[lastMove.end.x, lastMove.end.y] = lastMove.capturedPiece;
+    }
 
-        if(lastMove.capturedPiece != null)
+    public static void CapturePiece(Vector2Int pos)
+    {
+        Piece captured = board[pos.x, pos.y];
+        if(captured == null)
         {
-            board[lastMove.end.x, lastMove.end.y] = lastMove.capturedPiece;
+            Debug.LogError("Trying to capture null piece " + pos);
+            return;
         }
+
+        pieces[(int)captured.colour].Remove(captured);
     }
 
     public static bool HasPiece(Vector2Int position, Piece.Colour mask = Piece.Colour.NONE)
@@ -230,15 +250,28 @@ public static class Board
 
     public static void DebugShow()
     {
+        // for(int y = 0; y < 8; y++)
+        // {
+        //     string str = "";
+        //     for(int x = 0; x < 8; x++)
+        //     {
+        //         if(board[x, y] != null)
+        //             str += board[x,y].type.ToString()[0] + " ";
+        //         else
+        //             str += "  ";
+        //     }
+        //     Debug.Log(str);
+        // }
+
         for(int y = 0; y < 8; y++)
         {
             string str = "";
             for(int x = 0; x < 8; x++)
             {
                 if(board[x, y] != null)
-                    str += board[x,y].type.ToString().PadRight(str.Length + 8, ' ');
+                    str += board[x,y].Position + " ";
                 else
-                    str.PadRight(str.Length + 16, ' ');
+                    str += "       ";
             }
             Debug.Log(str);
         }
