@@ -101,7 +101,7 @@ public class BoardUI : MonoBehaviour
 
         if(currentPossibleMoves.Contains(boardCoord))
         {
-            Board.MovePiece(startDragPos, boardCoord);
+            Board.MakeMove(startDragPos, boardCoord);
 
             draggingPiece.transform.position = Board.PositionFromCoord(boardCoord);
             pieces[startDragPos.x, startDragPos.y].sortingOrder = 1;
@@ -114,6 +114,8 @@ public class BoardUI : MonoBehaviour
             draggingPiece.transform.position = Board.PositionFromCoord(startDragPos);
             pieces[startDragPos.x, startDragPos.y].sortingOrder = 1;
         }
+
+        Board.DebugShow();
 
         ResetSquares(currentPossibleMoves);
 

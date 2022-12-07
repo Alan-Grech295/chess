@@ -32,6 +32,37 @@ public struct Distance
 
 public static class Board
 {
+    public class InvalidFENException : Exception
+    {
+        public InvalidFENException(string message) : base(message)
+        {
+        }
+    }
+
+    public struct MoveInfo
+    {
+        public Vector2Int start, end;
+        public Piece movingPiece;
+        public Piece capturedPiece;
+
+        public MoveInfo(Vector2Int start, Vector2Int end, Piece movingPiece, Piece capturedPiece = null)
+        {
+            this.start = start;
+            this.end = end;
+            this.movingPiece = movingPiece;
+            this.capturedPiece = capturedPiece;
+        }
+
+        public void Show()
+        {
+            Debug.Log(start);
+            Debug.Log(end);
+            Debug.Log(movingPiece.type);
+            if(capturedPiece != null)
+                Debug.Log(capturedPiece.type);
+        }
+    }
+
     public static Piece[,] board = new Piece[8, 8];
     public static bool whiteIsBottom = true;
 
@@ -39,12 +70,10 @@ public static class Board
 
     public static Distance[,] distanceToEdge;
 
-    public class InvalidFENException : Exception
-    {
-        public InvalidFENException(string message) : base(message)
-        {
-        }
-    }
+    public static List<Vector2Int>[] piecePositions;
+    public static Vector2Int[] kingPositions;
+
+    private static MoveInfo lastMove;
 
     static Dictionary<char, Piece.Type> pieceTypeFromSymbol = new Dictionary<char, Piece.Type>()
     {
@@ -67,6 +96,11 @@ public static class Board
                 distanceToEdge[x, y] = new Distance(x, 7 - x, y, 7 - y);
             }
         }
+
+        kingPositions = new Vector2Int[2];
+        piecePositions = new List<Vector2Int>[2];
+        piecePositions[0] = new List<Vector2Int>();
+        piecePositions[1] = new List<Vector2Int>();
 
         InitializeBoardFromFEN(startFEN);
     }
@@ -121,7 +155,12 @@ public static class Board
                         throw new InvalidFENException("Invalid character entered (" + c + ")");
 
                     Piece.Type type = pieceTypeFromSymbol[lower];
-                    board[file, rank] = Piece.Create(colour, type);
+                    if(type == Piece.Type.KING)
+                    {
+                        kingPositions[(int)colour] = new Vector2Int(file, rank);
+                    }
+                    board[file, rank] = Piece.Create(colour, type, piecePositions[(int)colour].Count);
+                    piecePositions[(int)colour].Add(new Vector2Int(file, rank));
 
                     file++;
                 }
@@ -145,16 +184,33 @@ public static class Board
         return new Vector2Int(7 - file, 7 - rank);
     }
 
-    public static void MovePiece(Vector2Int start, Vector2Int end)
+    public static void MakeMove(Vector2Int start, Vector2Int end)
     {
-        board[end.x, end.y] = board[start.x, start.y];
+        Piece piece = board[start.x, start.y];
+
+        if(piece.type == Piece.Type.KING)
+        {
+            kingPositions[(int)piece.colour] = end;
+        }
+
+        lastMove = new MoveInfo(start, end, piece, board[end.x, end.y]);
+
+        board[end.x, end.y] = piece;
         board[start.x, start.y] = null;
+    }
+
+    public static void UnmakeMove()
+    {
+        board[lastMove.start.x, lastMove.start.y] = lastMove.movingPiece;
+
+        if(lastMove.capturedPiece != null)
+        {
+            board[lastMove.end.x, lastMove.end.y] = lastMove.capturedPiece;
+        }
     }
 
     public static bool HasPiece(Vector2Int position, Piece.Colour mask = Piece.Colour.NONE)
     {
-        
-
         Piece boardPiece = board[position.x, position.y];
         if (boardPiece == null)
             return false;
@@ -170,5 +226,21 @@ public static class Board
         if (position.x < 0 || position.y < 0 || position.x > 7 || position.y > 7)
             return false;
         return true;
+    }
+
+    public static void DebugShow()
+    {
+        for(int y = 0; y < 8; y++)
+        {
+            string str = "";
+            for(int x = 0; x < 8; x++)
+            {
+                if(board[x, y] != null)
+                    str += board[x,y].type.ToString().PadRight(str.Length + 8, ' ');
+                else
+                    str.PadRight(str.Length + 16, ' ');
+            }
+            Debug.Log(str);
+        }
     }
 }
