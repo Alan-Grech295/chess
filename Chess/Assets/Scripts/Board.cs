@@ -3,12 +3,41 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
+public struct Distance
+{
+    public byte[] distances;
+    public static Vector2Int[] straightDirections = new Vector2Int[4]{
+        Vector2Int.left, Vector2Int.right,
+        Vector2Int.down, Vector2Int.up
+    };
+    public static Vector2Int[] diagonalDirections = new Vector2Int[4]{
+        Vector2Int.left + Vector2Int.down, Vector2Int.right + Vector2Int.down,
+        Vector2Int.left + Vector2Int.up, Vector2Int.right + Vector2Int.up
+    };
+
+    public Distance(int left, int right, int up, int down)
+    {
+        distances = new byte[4];
+        distances[0] = (byte)left;
+        distances[1] = (byte)right;
+        distances[2] = (byte)up;
+        distances[3] = (byte)down;
+    }
+
+    public byte GetDiagonalDistance(int index)
+    {
+        return Math.Min(distances[index & 1], distances[((index & 2) >> 1) + 2]);
+    }
+}
+
 public static class Board
 {
     public static Piece[,] board = new Piece[8, 8];
     public static bool whiteIsBottom = true;
 
     public static string startFEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+
+    public static Distance[,] distanceToEdge;
 
     public class InvalidFENException : Exception
     {
@@ -30,6 +59,15 @@ public static class Board
     public static void InitializeBoard()
     {
         board = new Piece[8, 8];
+        distanceToEdge = new Distance[8, 8];
+        for(int y = 0; y < 8; y++)
+        {
+            for (int x = 0; x < 8; x++)
+            {
+                distanceToEdge[x, y] = new Distance(x, 7 - x, y, 7 - y);
+            }
+        }
+
         InitializeBoardFromFEN(startFEN);
     }
 
@@ -47,6 +85,11 @@ public static class Board
         }
         return new Vector3(4.375f - file * 1.25f, -4.375f + rank * 1.25f, depth);
 
+    }
+
+    public static Vector3 PositionFromCoord(Vector2Int pos, float depth = 0)
+    {
+        return PositionFromCoord(pos.x, pos.y, depth);
     }
 
     public static void InitializeBoardFromFEN(string fen) 
@@ -106,5 +149,26 @@ public static class Board
     {
         board[end.x, end.y] = board[start.x, start.y];
         board[start.x, start.y] = null;
+    }
+
+    public static bool HasPiece(Vector2Int position, Piece.Colour mask = Piece.Colour.NONE)
+    {
+        
+
+        Piece boardPiece = board[position.x, position.y];
+        if (boardPiece == null)
+            return false;
+
+        if (mask == Piece.Colour.NONE)
+            return true;
+
+        return boardPiece.colour == mask;
+    }
+
+    public static bool ValidPosition(Vector2Int position)
+    {
+        if (position.x < 0 || position.y < 0 || position.x > 7 || position.y > 7)
+            return false;
+        return true;
     }
 }
