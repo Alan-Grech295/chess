@@ -1,7 +1,10 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
+using UnityEditor;
 using UnityEngine;
+using static UnityEditor.PlayerSettings;
+using static UserInput;
 
 public class BoardUI : MonoBehaviour
 {
@@ -11,20 +14,58 @@ public class BoardUI : MonoBehaviour
     public Sprite squareSprite;
     public Color availablePositions;
 
+    [Header("Debug Properties")]
+    public Color kingMovesColour;
+    public Color kingCaptureColour;
+    public Piece.Type displayType;
+
+    private Piece.Type pastDisplayType;
+
+    public Moves[] kingMoves;
+
     private SpriteRenderer[,] pieces;
     private SpriteRenderer[,] boardSquares;
 
-    private Vector2Int startDragPos;
     private GameObject draggingPiece;
     private Moves currentPossibleMoves;
 
     private GameObject piecesObject;
     private GameObject boardObject;
 
+    private bool isDragging;
+    private Vector2Int startPos;
+
     // Start is called before the first frame update
     void Start()
     {
         InitialiseBoard();
+    }
+
+    private void Update()
+    {
+        Vector2 mousePos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
+        if (Input.GetMouseButtonDown(0))
+        {
+            isDragging = true;
+            startPos = Board.GetBoardCoordFromWorld(mousePos);
+            StartDrag(startPos);
+        }
+
+        if (Input.GetMouseButtonUp(0))
+        {
+            isDragging = false;
+            DropPiece(startPos, Board.GetBoardCoordFromWorld(mousePos));
+        }
+
+        if (isDragging)
+            DragPiece(mousePos);
+
+        /*if(pastDisplayType != displayType)
+        {
+            pastDisplayType = displayType;
+            ResetKingSquares();
+            DisplayKingSquares();
+        }*/
     }
 
     void InitialiseBoard()
@@ -77,50 +118,60 @@ public class BoardUI : MonoBehaviour
         }
     }
 
-    private void Update()
+    public void StartDrag(Vector2Int pos)
     {
-        
-    }
-
-    public void StartDrag(Vector2 coord)
-    {
-        startDragPos = Board.GetBoardCoordFromWorld(coord);
-
-        if (Board.board[startDragPos.x, startDragPos.y] != null)
+        if (Board.board[pos.x, pos.y] != null)
         {
-            draggingPiece = pieces[startDragPos.x, startDragPos.y].gameObject;
-            pieces[startDragPos.x, startDragPos.y].sortingOrder = 2;
-            currentPossibleMoves = Board.board[startDragPos.x, startDragPos.y].GetMoves(startDragPos);
+            draggingPiece = pieces[pos.x, pos.y].gameObject;
+            pieces[pos.x, pos.y].sortingOrder = 2;
+            currentPossibleMoves = Board.board[pos.x, pos.y].GetMoves(pos);
             ShowAvailableSquares(currentPossibleMoves);
         }
     }
 
-    public void DropPiece(Vector2 coord)
+    public void DropPiece(Vector2Int start, Vector2Int end)
     {
-        Vector2Int boardCoord = Board.GetBoardCoordFromWorld(coord);
+        //DEBUG
+        //ResetKingSquares();
+        //
 
-        if(currentPossibleMoves.Contains(boardCoord))
+        if (currentPossibleMoves.Contains(end))
         {
-            if(Board.board[boardCoord.x, boardCoord.y] != null)
+            Board.MoveInfo[] moves = Board.MakeMove(start, end);
+
+            foreach(Board.MoveInfo move in moves)
             {
-                Destroy(pieces[boardCoord.x, boardCoord.y].gameObject);
+                if (move.capturedPiece != null)
+                {
+                    Debug.Log(move.capturedPiece.type);
+                    Destroy(pieces[move.end.x, move.end.y].gameObject);
+                }
+
+                pieces[move.start.x, move.start.y].sortingOrder = 1;
+
+                pieces[move.start.x, move.start.y].transform.position = Board.PositionFromCoord(move.end);
+
+                pieces[move.end.x, move.end.y] = pieces[move.start.x, move.start.y];
+                pieces[move.start.x, move.start.y] = null;
+
             }
-
-            Board.MakeMove(startDragPos, boardCoord);
-
-            draggingPiece.transform.position = Board.PositionFromCoord(boardCoord);
-            pieces[startDragPos.x, startDragPos.y].sortingOrder = 1;
-
-            pieces[boardCoord.x, boardCoord.y] = pieces[startDragPos.x, startDragPos.y];
-            pieces[startDragPos.x, startDragPos.y] = null;
         }
         else
         {
-            draggingPiece.transform.position = Board.PositionFromCoord(startDragPos);
-            pieces[startDragPos.x, startDragPos.y].sortingOrder = 1;
+            if(draggingPiece != null)
+            {
+                draggingPiece.transform.position = Board.PositionFromCoord(start);
+                pieces[start.x, start.y].sortingOrder = 1;
+            }
+            
         }
 
-        Board.DebugShow();
+        //Board.DebugShow();
+
+        //DEBUG
+        //kingMoves = Piece.KingMoves(Piece.Colour.WHITE, Board.kingPositions[(int)Piece.Colour.WHITE]);
+        //DisplayKingSquares();
+        //
 
         ResetSquares(currentPossibleMoves);
 
@@ -136,6 +187,7 @@ public class BoardUI : MonoBehaviour
 
     void ShowAvailableSquares(in Moves moves)
     {
+        //DisplayKingSquares();
         for(int i = 0; i < moves.Count; i++)
         {
             Vector2Int pos = moves[i];
@@ -143,12 +195,88 @@ public class BoardUI : MonoBehaviour
         }
     }
 
-    void ResetSquares(in Moves moves)
+    /*void DisplayKingSquares()
+    {
+        if (kingMoves == null)
+            return;
+
+        if(displayType == Piece.Type.NONE)
+        {
+            foreach (Moves moves in kingMoves)
+            {
+                if (moves._endPositions == null)
+                    continue;
+                Color squareCol = ((moves.StartPos.x + moves.StartPos.y) % 2) != 0 ? lightColour : darkColour;
+                boardSquares[moves.StartPos.x, moves.StartPos.y].color = squareCol * kingMovesColour;
+                for (int i = 0; i < moves.Count; i++)
+                {
+                    Vector2Int pos = moves[i];
+                    squareCol = ((pos.x + pos.y) % 2) != 0 ? lightColour : darkColour;
+                    boardSquares[pos.x, pos.y].color = squareCol * kingMovesColour;
+                }
+            }
+
+            foreach (Moves moves in kingMoves)
+            {
+                if (moves.capturePositions == null)
+                    continue;
+                Color squareCol;
+                foreach (byte b in moves.capturePositions)
+                {
+                    Vector2Int pos = Moves.ToVec2(b);
+                    squareCol = ((pos.x + pos.y) % 2) != 0 ? lightColour : darkColour;
+                    boardSquares[pos.x, pos.y].color = squareCol * kingCaptureColour;
+                }
+            }
+        }
+        else
+        {
+            Moves moves = kingMoves[(int)displayType];
+            Color squareCol = ((moves.StartPos.x + moves.StartPos.y) % 2) != 0 ? lightColour : darkColour;
+
+            if (moves._endPositions != null)
+            {
+                boardSquares[moves.StartPos.x, moves.StartPos.y].color = squareCol * kingMovesColour;
+                for (int i = 0; i < moves.Count; i++)
+                {
+                    Vector2Int pos = moves[i];
+                    squareCol = ((pos.x + pos.y) % 2) != 0 ? lightColour : darkColour;
+                    boardSquares[pos.x, pos.y].color = squareCol * kingMovesColour;
+                }
+            }
+
+            if (moves.capturePositions != null)
+            {
+                foreach (byte b in moves.capturePositions)
+                {
+                    Vector2Int pos = Moves.ToVec2(b);
+                    squareCol = (pos.x + pos.y % 2) != 0 ? lightColour : darkColour;
+                    boardSquares[pos.x, pos.y].color = squareCol * kingCaptureColour;
+                }
+            }
+        }
+    }
+
+    void ResetKingSquares()
+    {
+        if (kingMoves == null)
+            return;
+
+        foreach(Moves moves in kingMoves)
+        {
+            ResetSquares(moves, true);
+        }
+    }*/
+
+    void ResetSquares(in Moves moves, bool king = false)
     {
         for (int i = 0; i < moves.Count; i++)
         {
             Vector2Int pos = moves[i];
             boardSquares[pos.x, pos.y].color = (pos.x + pos.y) % 2 != 0 ? lightColour : darkColour; ;
         }
+
+        //if(!king)
+            //DisplayKingSquares();
     }
 }

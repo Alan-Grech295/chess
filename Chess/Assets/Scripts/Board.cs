@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using Unity.VisualScripting;
 using UnityEngine;
 
 public struct Distance
@@ -73,7 +74,7 @@ public static class Board
     public static List<Piece>[] pieces;
     public static Vector2Int[] kingPositions;
 
-    private static MoveInfo lastMove;
+    private static List<MoveInfo> lastMoves;
 
     static Dictionary<char, Piece.Type> pieceTypeFromSymbol = new Dictionary<char, Piece.Type>()
     {
@@ -98,6 +99,7 @@ public static class Board
         }
 
         kingPositions = new Vector2Int[2];
+        lastMoves = new List<MoveInfo>();
         pieces = new List<Piece>[2];
         pieces[0] = new List<Piece>();
         pieces[1] = new List<Piece>();
@@ -184,37 +186,76 @@ public static class Board
         return new Vector2Int(7 - file, 7 - rank);
     }
 
-    public static void MakeMove(Vector2Int start, Vector2Int end, bool commit = true)
+    public static MoveInfo[] MakeReversibleMove(Vector2Int start, Vector2Int end)
+    {
+        lastMoves.Clear();
+        MoveInfo[] moveInfos = MakeMove(start, end, false);
+        lastMoves.AddRange(moveInfos);
+        return moveInfos;
+    }
+
+    public static MoveInfo[] MakeMove(Vector2Int start, Vector2Int end, bool commit = true)
     {
         Piece piece = board[start.x, start.y];
+        Piece targetPiece = board[end.x, end.y];
 
-        if(piece.type == Piece.Type.KING)
+        if (piece.type == Piece.Type.KING)
         {
             kingPositions[(int)piece.colour] = end;
+            //If Castling
+            if (targetPiece != null && targetPiece.type == Piece.Type.ROOK && targetPiece.colour == piece.colour)
+            {
+                Vector2Int newPiecePos = new Vector2Int(end.x == 7 ? 6 : 2, start.y);
+                Vector2Int newTargetPos = new Vector2Int(end.x == 7 ? 5 : 3, start.y);
+                if (commit)
+                {
+                    piece.moved = true;
+                    piece.Position = newPiecePos;
+                    targetPiece.Position = newTargetPos;
+                }
+
+                board[newPiecePos.x, newPiecePos.y] = piece;
+                board[newTargetPos.x, newTargetPos.y] = targetPiece;
+                board[start.x, start.y] = null;
+                board[end.x, end.y] = null;
+
+                return new MoveInfo[] { new MoveInfo(start, newPiecePos, piece, null),
+                                        new MoveInfo(end, newTargetPos, targetPiece, null)};
+            }
         }
 
-        if(!commit)
-        {
-            lastMove = new MoveInfo(start, end, piece, board[end.x, end.y]);
-        }
-        else
+        MoveInfo[] outMoves = new MoveInfo[] { new MoveInfo(start, end, piece, board[end.x, end.y]) };
+
+        if(commit)
         {
             piece.moved = true;
             piece.Position = end;
             if(board[end.x, end.y] != null)
-            {
                 CapturePiece(end);
-            }
         }
 
         board[end.x, end.y] = piece;
         board[start.x, start.y] = null;
+
+        if (commit)
+            Debug.Log("Final Move");
+
+        DebugShow();
+
+        return outMoves;
     }
 
     public static void UnmakeMove()
     {
-        board[lastMove.start.x, lastMove.start.y] = lastMove.movingPiece;
-        board[lastMove.end.x, lastMove.end.y] = lastMove.capturedPiece;
+        foreach(MoveInfo lastMove in lastMoves)
+        {
+            if(lastMove.movingPiece.type == Piece.Type.KING)
+                kingPositions[(int)lastMove.movingPiece.colour] = lastMove.start;
+
+            board[lastMove.start.x, lastMove.start.y] = lastMove.movingPiece;
+            board[lastMove.end.x, lastMove.end.y] = lastMove.capturedPiece;
+        }
+        
     }
 
     public static void CapturePiece(Vector2Int pos)
@@ -250,30 +291,36 @@ public static class Board
 
     public static void DebugShow()
     {
-        // for(int y = 0; y < 8; y++)
-        // {
-        //     string str = "";
-        //     for(int x = 0; x < 8; x++)
-        //     {
-        //         if(board[x, y] != null)
-        //             str += board[x,y].type.ToString()[0] + " ";
-        //         else
-        //             str += "  ";
-        //     }
-        //     Debug.Log(str);
-        // }
-
-        for(int y = 0; y < 8; y++)
+        string str = "";
+        for (int y = 0; y < 8; y++)
         {
-            string str = "";
             for(int x = 0; x < 8; x++)
             {
                 if(board[x, y] != null)
-                    str += board[x,y].Position + " ";
+                {
+                    char c = board[x, y].type.ToString()[0];
+                    str += (board[x,y].colour == Piece.Colour.WHITE ? c : char.ToLower(c)) + "  ";
+                }
                 else
-                    str += "       ";
+                {
+                    str += "0  ";
+                }
             }
-            Debug.Log(str);
+            str += "\n";
         }
+        Debug.Log(str);
+
+        //for(int y = 0; y < 8; y++)
+        //{
+        //    string str = "";
+        //    for(int x = 0; x < 8; x++)
+        //    {
+        //        if(board[x, y] != null)
+        //            str += board[x,y].Position + " ";
+        //        else
+        //            str += "       ";
+        //    }
+        //    Debug.Log(str);
+        //}
     }
 }

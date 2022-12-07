@@ -8,9 +8,9 @@ public abstract class Piece
 {
     public enum Colour { BLACK, WHITE, NONE}
     public enum Type { PAWN, BISHOP, KNIGHT, ROOK, QUEEN, KING, NONE }
-    public Colour colour;
+    public Colour colour = Colour.NONE;
     protected Colour enemyColour;
-    public Type type;
+    public Type type = Type.NONE;
 
     public bool moved = false;
     //Index in piece positions list in board
@@ -72,6 +72,21 @@ public abstract class Piece
         return false;
     }
 
+    public static Moves[] KingMoves(Colour colour, Vector2Int position)
+    {
+        Moves[] moves = new Moves[Enum.GetValues(typeof(Type)).Length - 1];
+        foreach (Type type in Enum.GetValues(typeof(Type)))
+        {
+            if (type == Type.NONE)
+                continue;
+
+            Piece p = Create(colour, type, position);
+            Moves kingMoves = moves[(int)type] = p.GetMoves(position, false);
+        }
+
+        return moves;
+    }
+
     protected static bool KingInCheck(Colour colour, Vector2Int position)
     {
         foreach(Type type in Enum.GetValues(typeof(Type)))
@@ -79,7 +94,7 @@ public abstract class Piece
             if(type == Type.NONE)
                 continue;
 
-            Piece p = Piece.Create(colour, type, position);
+            Piece p = Create(colour, type, position);
             Moves kingMoves = p.GetMoves(position, false);
 
             if(kingMoves.capturePositions != null)
@@ -88,7 +103,10 @@ public abstract class Piece
                 {
                     Vector2Int capturePos = Moves.ToVec2(b);
                     if(Board.board[capturePos.x, capturePos.y].type == type)
+                    {
+                        Debug.Log("Capture at " + capturePos + " by " + type + "\n" + kingMoves.ToString());
                         return true;
+                    }
                 }
             }
         }
@@ -103,7 +121,7 @@ public abstract class Piece
         for(int i = 0; i < moves.Count; i++)
         {
             Vector2Int move = moves[i];
-            Board.MakeMove(moves.StartPos, move, false);
+            Board.MakeReversibleMove(moves.StartPos, move);
             
             if(KingInCheck(colour, Board.kingPositions[(int)colour]))
                 newMoves.Remove(move);
@@ -195,6 +213,30 @@ public struct Moves
     public static byte FromVec2(Vector2Int vec)
     {
         return (byte)((vec.x & 0xF) | ((vec.y & 0xF) << 4));
+    }
+
+    //For Debug
+    public string ToString()
+    {
+        string str = "Moves:\n";
+        if(_endPositions != null)
+        {
+            foreach (byte b in _endPositions)
+            {
+                str += "From " + ToVec2(startPos) + " to " + ToVec2(b) + "\n";
+            }
+        }
+        
+        if(capturePositions != null)
+        {
+            str += "Captures:\n";
+            foreach (byte b in capturePositions)
+            {
+                str += "From " + ToVec2(startPos) + " to " + ToVec2(b) + "\n";
+            }
+        }
+
+        return str;
     }
 }
 
