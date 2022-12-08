@@ -46,14 +46,23 @@ public static class Board
     {
         public Vector2Int start, end;
         public Piece movingPiece;
-        public Piece capturedPiece;
+        //Usually used for captured pieces, except for
+        //castling, where it is used for the Rook
+        public Piece otherPiece;
+        public Moves.Move.Flag flags;
 
-        public MoveInfo(Vector2Int start, Vector2Int end, Piece movingPiece, Piece capturedPiece = null)
+        public MoveInfo(Vector2Int start, Vector2Int end, Piece movingPiece, Piece capturedPiece = null, Moves.Move.Flag flags = Moves.Move.Flag.NONE)
         {
             this.start = start;
             this.end = end;
             this.movingPiece = movingPiece;
-            this.capturedPiece = capturedPiece;
+            this.otherPiece = capturedPiece;
+            this.flags = flags;
+        }
+
+        public bool HasFlag(Moves.Move.Flag flag)
+        {
+            return (flags & flag) != 0;
         }
 
         public void Show()
@@ -61,13 +70,13 @@ public static class Board
             Debug.Log(start);
             Debug.Log(end);
             Debug.Log(movingPiece.type);
-            if(capturedPiece != null)
-                Debug.Log(capturedPiece.type);
+            if(otherPiece != null)
+                Debug.Log(otherPiece.type);
         }
     }
 
     public static Piece[,] board = new Piece[8, 8];
-    public static bool whiteIsBottom = true;
+    public static bool whiteStarts = true;
 
     public static string startFEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
@@ -76,7 +85,10 @@ public static class Board
     public static List<Piece>[] pieces;
     public static Vector2Int[] kingPositions;
 
-    //private static List<MoveInfo> lastMoves;
+    public static Colour nextMoveColour;
+
+    public static int turn = 0;
+    private static bool nextTurn = false;
 
     static Dictionary<char, Piece.Type> pieceTypeFromSymbol = new Dictionary<char, Piece.Type>()
     {
@@ -112,12 +124,12 @@ public static class Board
     public static int GetDir(Colour col)
     {
         int dir = (col == Colour.BLACK ? 1 : -1);
-        return whiteIsBottom ? dir : -dir;
+        return whiteStarts ? dir : -dir;
     }
 
     public static Vector3 PositionFromCoord(int file, int rank, float depth = 0)
     {
-        if (whiteIsBottom)
+        if (whiteStarts)
         {
             return new Vector3(-4.375f + file * 1.25f, 4.375f - rank * 1.25f, depth);
         }
@@ -163,7 +175,7 @@ public static class Board
                     {
                         kingPositions[(int)colour] = new Vector2Int(file, rank);
                     }
-                    board[file, rank] = Piece.Create(colour, type, new Vector2Int(file, rank));
+                    board[file, rank] = Create(colour, type, new Vector2Int(file, rank));
                     pieces[(int)colour].Add(board[file, rank]);
 
                     file++;
@@ -172,7 +184,9 @@ public static class Board
             rank++;
         }
 
-        whiteIsBottom = sections[1][0] == 'w';
+        whiteStarts = sections[1][0] == 'w';
+        
+        nextMoveColour = whiteStarts ? Colour.WHITE : Colour.BLACK;
     }
 
     public static Vector2Int GetBoardCoordFromWorld(Vector2 worldCoord)
@@ -180,7 +194,7 @@ public static class Board
         int file = (int)Math.Min(7, Math.Floor(Math.Max((worldCoord.x + 4.375f + (1.25f / 2)) / 1.25f, 0)));
         int rank = (int)Math.Min(7, Math.Floor(Math.Max(8 - (worldCoord.y + 4.375f + (1.25f / 2)) / 1.25f, 0)));
 
-        if (whiteIsBottom)
+        if (whiteStarts)
         {            
             return new Vector2Int(file, rank);
         }
@@ -188,10 +202,22 @@ public static class Board
         return new Vector2Int(7 - file, 7 - rank);
     }
 
-    public static MoveInfo[] MakeMove(Vector2Int start, Moves.Move move, bool commit = true)
+    public static MoveInfo MakeMove(Vector2Int start, Moves.Move move)
     {
         Vector2Int end = move.EndPosition;
         Piece piece = board[start.x, start.y];
+
+        if(piece.colour != nextMoveColour)
+        {
+            Debug.LogError("Trying to move the wrong coloured piece");
+            return new MoveInfo();
+        }
+
+        if (nextTurn)
+            turn++;
+
+        nextTurn = (whiteStarts ? (nextMoveColour == Colour.WHITE) : (nextMoveColour == Colour.BLACK));
+
         Piece targetPiece = board[end.x, end.y];
 
         if (piece.type == Piece.Type.KING)
@@ -204,32 +230,36 @@ public static class Board
         {
             Vector2Int newPiecePos = new Vector2Int(end.x == 7 ? 6 : 2, start.y);
             Vector2Int newTargetPos = new Vector2Int(end.x == 7 ? 5 : 3, start.y);
-            if (commit)
-            {
-                piece.numMoves++;
-                piece.Position = newPiecePos;
-                targetPiece.Position = newTargetPos;
-            }
+            piece.numMoves++;
+            targetPiece.numMoves++;
+
+            piece.Position = newPiecePos;
+            targetPiece.Position = newTargetPos;
 
             board[newPiecePos.x, newPiecePos.y] = piece;
             board[newTargetPos.x, newTargetPos.y] = targetPiece;
             board[start.x, start.y] = null;
             board[end.x, end.y] = null;
 
-            return new MoveInfo[] { new MoveInfo(start, newPiecePos, piece, null),
-                                        new MoveInfo(end, newTargetPos, targetPiece, null)};
+            return new MoveInfo(start, end, piece, targetPiece, move.moveFlags);
         }
 
-        MoveInfo[] outMoves = new MoveInfo[] { new MoveInfo(start, end, piece) };
+        MoveInfo outMove = new MoveInfo(start, end, piece, null, move.moveFlags);
 
-        if(commit)
-        {
-            piece.numMoves++;
-            piece.Position = end;
-        }
+        piece.numMoves++;
+        piece.Position = end;
+
+        //Change the next move
+        nextMoveColour = nextMoveColour == Colour.WHITE ? Colour.BLACK : Colour.WHITE;
 
         if (move.HasFlag(Moves.Move.Flag.CAPTURE))
-            outMoves[0].capturedPiece = CapturePiece(piece.colour, move, commit);
+            outMove.otherPiece = CapturePiece(piece.colour, move);
+
+        if (move.HasFlag(Moves.Move.Flag.CONVERT_QUEEN))
+        {
+            int pieceToChange = pieces[(int)piece.colour].FindIndex(p => p == piece);
+            piece = pieces[(int)piece.colour][pieceToChange] = ChangeType(pieces[(int)piece.colour][pieceToChange], Piece.Type.QUEEN);
+        }
 
         board[end.x, end.y] = piece;
         board[start.x, start.y] = null;
@@ -240,33 +270,64 @@ public static class Board
         DebugShow();
         Debug.Log("Flags: " + move.moveFlags);*/
 
-        return outMoves;
+        return outMove;
     }
 
-    public static void UnmakeMove(MoveInfo[] lastMoves)
+    public static void UnmakeMove(MoveInfo lastMove)
     {
-        foreach(MoveInfo lastMove in lastMoves)
+        if (lastMove.movingPiece.type == Piece.Type.KING)
+            kingPositions[(int)lastMove.movingPiece.colour] = lastMove.start;
+
+        board[lastMove.movingPiece.Position.x, lastMove.movingPiece.Position.y] = null;
+
+        lastMove.movingPiece.Position = lastMove.start;
+        lastMove.movingPiece.numMoves--;
+
+        board[lastMove.start.x, lastMove.start.y] = lastMove.movingPiece;
+
+        if (lastMove.HasFlag(Moves.Move.Flag.CAPTURE))
         {
-            if(lastMove.movingPiece.type == Piece.Type.KING)
-                kingPositions[(int)lastMove.movingPiece.colour] = lastMove.start;
-
-            lastMove.movingPiece.Position = lastMove.start;
-
-            board[lastMove.start.x, lastMove.start.y] = lastMove.movingPiece;
-            if (lastMove.capturedPiece != null)
-                board[lastMove.capturedPiece.Position.x, lastMove.capturedPiece.Position.y] = lastMove.capturedPiece;
-            else
-                board[lastMove.end.x, lastMove.end.y] = null;
+            board[lastMove.otherPiece.Position.x, lastMove.otherPiece.Position.y] = lastMove.otherPiece;
         }
+        else
+        {
+            if(lastMove.HasFlag(Moves.Move.Flag.CASTLE))
+            {
+                board[lastMove.otherPiece.Position.x, lastMove.otherPiece.Position.y] = null;
+
+                lastMove.otherPiece.Position = lastMove.end;
+                lastMove.otherPiece.numMoves--;
+
+                board[lastMove.end.x, lastMove.end.y] = lastMove.otherPiece;
+            }
+            else
+            {
+                board[lastMove.end.x, lastMove.end.y] = null;
+            }
+        }
+
+        nextMoveColour = lastMove.movingPiece.colour;
+
+        /*
+         White Play (Next turn = True, Turn = 0)
+         Black Play (Next turn = False, Turn = 1)
+         White Play (Next turn = True, Turn = 1)
+         Black Play (Next turn = False, Turn = 2)
+         */
+
+        nextTurn = !nextTurn;
+
+        if (nextTurn)
+            turn--;
     }
 
-    public static Piece CapturePiece(Colour colour, Moves.Move move, bool commit)
+    public static Piece CapturePiece(Colour colour, Moves.Move move)
     {
-        Piece captured = null;
+        Piece captured;
         if (move.HasFlag(Moves.Move.Flag.EN_PASSANT))
         {
             int enPassantDir = colour == Colour.WHITE ? 1 : -1;
-            enPassantDir = whiteIsBottom ? enPassantDir : -enPassantDir;
+            enPassantDir = whiteStarts ? enPassantDir : -enPassantDir;
             captured = board[move.EndPosition.x, move.EndPosition.y + enPassantDir];
             board[move.EndPosition.x, move.EndPosition.y + enPassantDir] = null;
         }
@@ -339,5 +400,54 @@ public static class Board
         //    }
         //    Debug.Log(str);
         //}
+    }
+
+    public static void DebugShow(in Piece[,] board)
+    {
+        string str = "";
+        for (int y = 0; y < 8; y++)
+        {
+            for (int x = 0; x < 8; x++)
+            {
+                if (board[x, y] != null)
+                {
+                    char c = board[x, y].type.ToString()[0];
+                    str += (board[x, y].colour == Colour.WHITE ? c : char.ToLower(c)) + "  ";
+                }
+                else
+                {
+                    str += "0  ";
+                }
+            }
+            str += "\n";
+        }
+        Debug.Log(str);
+
+        //for(int y = 0; y < 8; y++)
+        //{
+        //    string str = "";
+        //    for(int x = 0; x < 8; x++)
+        //    {
+        //        if(board[x, y] != null)
+        //            str += board[x,y].Position + " ";
+        //        else
+        //            str += "       ";
+        //    }
+        //    Debug.Log(str);
+        //}
+    }
+
+    public static bool Equal(Piece[,] board1, Piece[,] board2)
+    {
+        for (int y = 0; y < 8; y++)
+        {
+            for (int x = 0; x < 8; x++)
+            {
+                if (board1[x, y] != board2[x, y])
+                    return false;
+            }
+        }
+
+        return true;
     }
 }

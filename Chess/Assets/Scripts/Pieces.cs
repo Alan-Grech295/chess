@@ -53,10 +53,23 @@ public abstract class Piece
         return null;
     }
 
+    public static Piece ChangeType(Piece piece, Type newType)
+    {
+        Piece newPiece = Create(piece.colour, newType, piece.Position);
+        newPiece.numMoves = piece.numMoves;
+        return newPiece;
+    }
+
     //Converts a move 
     protected static Vector2Int ConvertWhiteMove(Colour colour, Vector2Int move)
     {
-        if(Board.whiteIsBottom)
+        if(colour == Colour.NONE)
+        {
+            Debug.LogError("Invalid colour NONE");
+            return Vector2Int.zero;
+        }
+
+        if(Board.whiteStarts)
         {
             if (colour == Colour.WHITE)
                 return move;
@@ -69,21 +82,34 @@ public abstract class Piece
             return new Vector2Int(move.x, 7 - move.y);
         }
     }
-    protected static bool AddMoveIfValid(Vector2Int position, ref Moves moves, Colour mask = Colour.NONE)
+    protected static bool AddMoveIfValid(Vector2Int position, ref Moves moves, Colour mask = Colour.NONE, Colour colour = Colour.NONE, bool convertQueen = false)
     {
         if (Board.ValidPosition(position) && !Board.HasPiece(position, mask))
         {
-            moves.Add(new Moves.Move(position));
+            Moves.Move.Flag flag = Moves.Move.Flag.NONE;
+            if(convertQueen && ConvertWhiteMove(colour, position).y == 0)
+            {
+                flag |= Moves.Move.Flag.CONVERT_QUEEN;
+            }
+
+            moves.Add(new Moves.Move(position, flag));
             return true;
         }
         return false;
     }
 
-    protected static bool AddMoveIfEnemy(Vector2Int position, ref Moves moves, Colour enemy)
+    protected static bool AddMoveIfEnemy(Vector2Int position, ref Moves moves, Colour enemy, Colour colour = Colour.NONE, bool convertQueen = false)
     {
         if (Board.ValidPosition(position) && Board.HasPiece(position, enemy))
         {
-            Moves.Move move = new Moves.Move(position, Moves.Move.Flag.CAPTURE);
+            Moves.Move.Flag flag = Moves.Move.Flag.CAPTURE;
+
+            if (convertQueen && ConvertWhiteMove(colour, position).y == 0)
+            {
+                flag |= Moves.Move.Flag.CONVERT_QUEEN;
+            }
+
+            Moves.Move move = new Moves.Move(position, flag);
             moves.Add(move);
             moves.AddCapturePosition(move);
             return true;
@@ -141,12 +167,13 @@ public abstract class Piece
         for(int i = 0; i < moves.Count; i++)
         {
             Moves.Move move = moves[i];
-            Board.MoveInfo[] infos = Board.MakeMove(moves.StartPos, move, false);
             
-            if(KingInCheck(colour, Board.kingPositions[(int)colour]))
+            Board.MoveInfo info = Board.MakeMove(moves.StartPos, move);
+
+            if (KingInCheck(colour, Board.kingPositions[(int)colour]))
                 newMoves.Remove(move);
 
-            Board.UnmakeMove(infos);
+            Board.UnmakeMove(info);
         }
 
         return newMoves;
@@ -306,6 +333,8 @@ public struct Moves
     }
 }
 
+//TODO: En passant capture must be performed immediately
+//TODO: Check whether en passant is possible with capture (use chess.com)
 public class Pawn : Piece
 {
     public Pawn(Colour colour, Vector2Int position) : base(colour, position)
@@ -318,10 +347,10 @@ public class Pawn : Piece
     {
         Moves moves = new Moves(position);
         Vector2Int dir = colour == Colour.WHITE ? Vector2Int.down : Vector2Int.up;
-        dir = Board.whiteIsBottom ? dir : -dir;
+        dir = Board.whiteStarts ? dir : -dir;
 
         //Check if pawn can move 1 square forward
-        bool canMoveForward = AddMoveIfValid(position + dir, ref moves);
+        bool canMoveForward = AddMoveIfValid(position + dir, ref moves, Colour.NONE, colour, true);
 
         //Check if pawn can move 2 squares forward
         if (canMoveForward && ConvertWhiteMove(colour, position).y == 6)
@@ -330,23 +359,25 @@ public class Pawn : Piece
         }
 
         //Check if pawn can go left
-        AddMoveIfEnemy(position + dir + Vector2Int.left, ref moves, enemyColour);
+        AddMoveIfEnemy(position + dir + Vector2Int.left, ref moves, enemyColour, colour, true);
 
         //Check if pawn can go right
-        AddMoveIfEnemy(position + dir + Vector2Int.right, ref moves, enemyColour);
+        AddMoveIfEnemy(position + dir + Vector2Int.right, ref moves, enemyColour, colour, true);
 
         if(numMoves == 2 && ConvertWhiteMove(colour, position).y == 3)
         {
             //Check left for en passant
-            if (Board.ValidPosition(position + Vector2Int.left) && Board.HasPiece(position + Vector2Int.left, enemyColour))
+            Vector2Int checkLeft = position + Vector2Int.left;
+            if (Board.ValidPosition(checkLeft) && Board.HasPiece(checkLeft, enemyColour) && Board.board[checkLeft.x, checkLeft.y].type == Type.PAWN)
             {
-                moves.Add(new Moves.Move(position + Vector2Int.left + dir, Moves.Move.Flag.CAPTURE | Moves.Move.Flag.EN_PASSANT));
+                moves.Add(new Moves.Move(checkLeft + dir, Moves.Move.Flag.CAPTURE | Moves.Move.Flag.EN_PASSANT));
             }
 
             //Check right for en passant
-            if (Board.ValidPosition(position + Vector2Int.right) && Board.HasPiece(position + Vector2Int.right, enemyColour))
+            Vector2Int checkRight = position + Vector2Int.right;
+            if (Board.ValidPosition(checkRight) && Board.HasPiece(checkRight, enemyColour) && Board.board[checkRight.x, checkRight.y].type == Type.PAWN)
             {
-                moves.Add(new Moves.Move(position + Vector2Int.right + dir, Moves.Move.Flag.CAPTURE | Moves.Move.Flag.EN_PASSANT));
+                moves.Add(new Moves.Move(checkRight + dir, Moves.Move.Flag.CAPTURE | Moves.Move.Flag.EN_PASSANT));
             }
         }
 
