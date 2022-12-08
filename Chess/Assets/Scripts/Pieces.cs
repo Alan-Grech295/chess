@@ -1,20 +1,23 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
+using static UnityEngine.EventSystems.EventTrigger;
 using static UnityEngine.Rendering.DebugUI;
 
 public abstract class Piece
 {
     public enum Colour { BLACK, WHITE, NONE}
     public enum Type { PAWN, BISHOP, KNIGHT, ROOK, QUEEN, KING, NONE }
-    public Colour colour = Colour.NONE;
-    protected Colour enemyColour;
-    public Type type = Type.NONE;
 
-    public bool moved = false;
-    //Index in piece positions list in board
+    public Colour colour = Colour.NONE;
+    public Type type = Type.NONE;
+    public int numMoves = 0;
+
     private byte piecePos;
+    protected Colour enemyColour;
+
     public Vector2Int Position{
         get { return Moves.ToVec2(piecePos);}
         set { piecePos = Moves.FromVec2(value);}
@@ -50,11 +53,27 @@ public abstract class Piece
         return null;
     }
 
+    //Converts a move 
+    protected static Vector2Int ConvertWhiteMove(Colour colour, Vector2Int move)
+    {
+        if(Board.whiteIsBottom)
+        {
+            if (colour == Colour.WHITE)
+                return move;
+            return new Vector2Int(move.x, 7 - move.y);
+        }
+        else
+        {
+            if (colour == Colour.BLACK)
+                return move;
+            return new Vector2Int(move.x, 7 - move.y);
+        }
+    }
     protected static bool AddMoveIfValid(Vector2Int position, ref Moves moves, Colour mask = Colour.NONE)
     {
         if (Board.ValidPosition(position) && !Board.HasPiece(position, mask))
         {
-            moves.Add(position);
+            moves.Add(new Moves.Move(position));
             return true;
         }
         return false;
@@ -64,8 +83,9 @@ public abstract class Piece
     {
         if (Board.ValidPosition(position) && Board.HasPiece(position, enemy))
         {
-            moves.Add(position);
-            moves.AddCapturePosition(position);
+            Moves.Move move = new Moves.Move(position, Moves.Move.Flag.CAPTURE);
+            moves.Add(move);
+            moves.AddCapturePosition(move);
             return true;
         }
 
@@ -99,12 +119,12 @@ public abstract class Piece
 
             if(kingMoves.capturePositions != null)
             {
-                foreach(byte b in kingMoves.capturePositions)
+                foreach(Moves.Move m in kingMoves.capturePositions)
                 {
-                    Vector2Int capturePos = Moves.ToVec2(b);
+                    Vector2Int capturePos = m.EndPosition;
                     if(Board.board[capturePos.x, capturePos.y].type == type)
                     {
-                        Debug.Log("Capture at " + capturePos + " by " + type + "\n" + kingMoves.ToString());
+                        //Debug.Log("Capture at " + capturePos + " by " + type + "\n" + kingMoves.ToString());
                         return true;
                     }
                 }
@@ -120,13 +140,13 @@ public abstract class Piece
 
         for(int i = 0; i < moves.Count; i++)
         {
-            Vector2Int move = moves[i];
-            Board.MakeReversibleMove(moves.StartPos, move);
+            Moves.Move move = moves[i];
+            Board.MoveInfo[] infos = Board.MakeMove(moves.StartPos, move, false);
             
             if(KingInCheck(colour, Board.kingPositions[(int)colour]))
                 newMoves.Remove(move);
 
-            Board.UnmakeMove();
+            Board.UnmakeMove(infos);
         }
 
         return newMoves;
@@ -135,9 +155,40 @@ public abstract class Piece
 
 public struct Moves
 {
+    public struct Move
+    {
+        public byte endPosition;
+        public Flag moveFlags;
+        public enum Flag
+        {
+            NONE = 0,
+            CAPTURE = 1,
+            CASTLE = 2,
+            EN_PASSANT = 4,
+            CONVERT_QUEEN = 8,
+        }
+
+        public Vector2Int EndPosition
+        {
+            get { return ToVec2(endPosition); }
+            set { endPosition = FromVec2(value); }
+        }
+
+        public Move(Vector2Int endPosition, Flag moveFlags = Flag.NONE)
+        {
+            this.endPosition = FromVec2(endPosition);
+            this.moveFlags = moveFlags;
+        }
+
+        public bool HasFlag(Flag flag)
+        {
+            return (moveFlags & flag) != 0;
+        }
+    }
+
     private byte startPos;
-    public List<byte> _endPositions;
-    public List<byte> capturePositions;
+    public List<Move> endPositions;
+    public List<Move> capturePositions;
 
     public Moves(Vector2Int startPos) : this()
     {
@@ -147,13 +198,13 @@ public struct Moves
     public Moves(Moves copy)
     {
         this.startPos = copy.startPos;
-        if(copy._endPositions != null)
-            this._endPositions = new List<byte>(copy._endPositions);
+        if(copy.endPositions != null)
+            this.endPositions = new List<Move>(copy.endPositions);
         else
-            this._endPositions = null;
+            this.endPositions = null;
 
         if(copy.capturePositions != null)
-            this.capturePositions = new List<byte>(copy.capturePositions);
+            this.capturePositions = new List<Move>(copy.capturePositions);
         else
             this.capturePositions = null;
     }
@@ -166,43 +217,58 @@ public struct Moves
 
     public int Count
     {
-        get { return _endPositions == null ? 0 : _endPositions.Count; }
+        get { return endPositions == null ? 0 : endPositions.Count; }
     }
 
-    public Vector2Int this[int index]
+    public Move this[int index]
     {
-        get { return ToVec2(_endPositions[index]); }
-        set { _endPositions[index] = FromVec2(value); }
+        get { return endPositions[index]; }
+        set { endPositions[index] = value; }
     }
 
-    public void Add(Vector2Int pos)
+    public void Add(Move move)
     {
-        if(_endPositions == null)
-            _endPositions = new List<byte>();
+        if(endPositions == null)
+            endPositions = new List<Move>();
 
-        _endPositions.Add(FromVec2(pos));
+        endPositions.Add(move);
     }
 
-    public void Remove(Vector2Int pos)
+    public void Remove(Move move)
     {
-        _endPositions.Remove(FromVec2(pos));
+        endPositions.Remove(move);
         //capturePositions.Remove(FromVec2(pos));
     }
 
-    public void AddCapturePosition(Vector2Int pos)
+    public void AddCapturePosition(Move move)
     {
         if(capturePositions == null)
-            capturePositions = new List<byte>();
+            capturePositions = new List<Move>();
 
-        capturePositions.Add(FromVec2(pos));
+        capturePositions.Add(move);
     }
 
-    public bool Contains(Vector2Int pos)
+    public bool Contains(Move move)
     {
-        if (_endPositions == null)
+        if (endPositions == null)
             return false;
-        byte posByte = FromVec2(pos);
-        return _endPositions.Contains(posByte);
+
+        return endPositions.Contains(move);
+    }
+
+    public bool Contains(Vector2Int move)
+    {
+        if (endPositions == null)
+            return false;
+
+        return endPositions.Where(i => i.EndPosition == move).GetEnumerator().MoveNext();
+    }
+
+    public Move GetMove(Vector2Int move)
+    {
+        if (endPositions == null)
+            return new Move();
+        return endPositions.Where(i => i.EndPosition == move).FirstOrDefault();
     }
 
     public static Vector2Int ToVec2(byte b)
@@ -216,23 +282,23 @@ public struct Moves
     }
 
     //For Debug
-    public string ToString()
+    public override string ToString()
     {
         string str = "Moves:\n";
-        if(_endPositions != null)
+        if(endPositions != null)
         {
-            foreach (byte b in _endPositions)
+            foreach (Move m in endPositions)
             {
-                str += "From " + ToVec2(startPos) + " to " + ToVec2(b) + "\n";
+                str += "From " + ToVec2(startPos) + " to " + ToVec2(m.endPosition) + "\n";
             }
         }
         
         if(capturePositions != null)
         {
             str += "Captures:\n";
-            foreach (byte b in capturePositions)
+            foreach (Move m in capturePositions)
             {
-                str += "From " + ToVec2(startPos) + " to " + ToVec2(b) + "\n";
+                str += "From " + ToVec2(startPos) + " to " + ToVec2(m.endPosition) + "\n";
             }
         }
 
@@ -247,21 +313,18 @@ public class Pawn : Piece
         type = Type.PAWN;
         this.colour = colour;
     }
+
     public override Moves GetMoves(Vector2Int position, bool filterChecks = true)
     {
         Moves moves = new Moves(position);
         Vector2Int dir = colour == Colour.WHITE ? Vector2Int.down : Vector2Int.up;
+        dir = Board.whiteIsBottom ? dir : -dir;
 
         //Check if pawn can move 1 square forward
         bool canMoveForward = AddMoveIfValid(position + dir, ref moves);
 
         //Check if pawn can move 2 squares forward
-        if (canMoveForward && position.y == 6 && colour == Colour.WHITE)
-        {
-            AddMoveIfValid(position + dir * 2, ref moves);
-        }
-
-        if (canMoveForward && position.y == 1 && colour == Colour.BLACK)
+        if (canMoveForward && ConvertWhiteMove(colour, position).y == 6)
         {
             AddMoveIfValid(position + dir * 2, ref moves);
         }
@@ -272,7 +335,22 @@ public class Pawn : Piece
         //Check if pawn can go right
         AddMoveIfEnemy(position + dir + Vector2Int.right, ref moves, enemyColour);
 
-        if(filterChecks)
+        if(numMoves == 2 && ConvertWhiteMove(colour, position).y == 3)
+        {
+            //Check left for en passant
+            if (Board.ValidPosition(position + Vector2Int.left) && Board.HasPiece(position + Vector2Int.left, enemyColour))
+            {
+                moves.Add(new Moves.Move(position + Vector2Int.left + dir, Moves.Move.Flag.CAPTURE | Moves.Move.Flag.EN_PASSANT));
+            }
+
+            //Check right for en passant
+            if (Board.ValidPosition(position + Vector2Int.right) && Board.HasPiece(position + Vector2Int.right, enemyColour))
+            {
+                moves.Add(new Moves.Move(position + Vector2Int.right + dir, Moves.Move.Flag.CAPTURE | Moves.Move.Flag.EN_PASSANT));
+            }
+        }
+
+        if (filterChecks)
             return FilterMoves(colour, moves);
         else
             return moves;
@@ -303,14 +381,17 @@ public class Bishop : Piece
                 if (Board.HasPiece(newPos, colour))
                     break;
 
+                Moves.Move move = new Moves.Move(newPos);
+
                 if (Board.HasPiece(newPos, enemyColour))
                 {
-                    moves.Add(newPos);
-                    moves.AddCapturePosition(newPos);
+                    move.moveFlags = Moves.Move.Flag.CAPTURE;
+                    moves.Add(move);
+                    moves.AddCapturePosition(move);
                     break;
                 }
 
-                moves.Add(newPos);
+                moves.Add(move);
             }
         }
         if(filterChecks)
@@ -371,14 +452,17 @@ public class Rook : Piece
                 if (Board.HasPiece(newPos, colour))
                     break;
 
+                Moves.Move move = new Moves.Move(newPos);
+
                 if (Board.HasPiece(newPos, enemyColour))
                 {
-                    moves.Add(newPos);
-                    moves.AddCapturePosition(newPos);
+                    move.moveFlags = Moves.Move.Flag.CAPTURE;
+                    moves.Add(move);
+                    moves.AddCapturePosition(move);
                     break;
                 }
 
-                moves.Add(newPos);
+                moves.Add(move);
             }
         }
 
@@ -413,14 +497,17 @@ public class Queen : Piece
                 if (Board.HasPiece(newPos, colour))
                     break;
 
+                Moves.Move move = new Moves.Move(newPos);
+
                 if (Board.HasPiece(newPos, enemyColour))
                 {
-                    moves.Add(newPos);
-                    moves.AddCapturePosition(newPos);
+                    move.moveFlags = Moves.Move.Flag.CAPTURE;
+                    moves.Add(move);
+                    moves.AddCapturePosition(move);
                     break;
                 }
 
-                moves.Add(newPos);
+                moves.Add(move);
             }
         }
 
@@ -436,18 +523,21 @@ public class Queen : Piece
                 if (Board.HasPiece(newPos, colour))
                     break;
 
+                Moves.Move move = new Moves.Move(newPos);
+
                 if (Board.HasPiece(newPos, enemyColour))
                 {
-                    moves.Add(newPos);
-                    moves.AddCapturePosition(newPos);
+                    move.moveFlags = Moves.Move.Flag.CAPTURE;
+                    moves.Add(move);
+                    moves.AddCapturePosition(move);
                     break;
                 }
 
-                moves.Add(newPos);
+                moves.Add(move);
             }
         }
-        
-        if(filterChecks)
+
+        if (filterChecks)
             return FilterMoves(colour, moves);
         else
             return moves;
@@ -477,12 +567,12 @@ public class King : Piece
         }
 
         //Castling
-        if(!moved && filterChecks && !KingInCheck(colour, Position))
+        if(numMoves == 0 && filterChecks && !KingInCheck(colour, Position))
         {
             int yPos = Position.y;
             //Left
             Piece leftRook = Board.board[0, yPos];
-            if(leftRook != null && leftRook.type == Type.ROOK && !leftRook.moved)
+            if(leftRook != null && leftRook.type == Type.ROOK && leftRook.numMoves == 0)
             {
                 bool canCastle = true;
                 for(int x = Position.x - 1; x > 0; x--)
@@ -496,13 +586,13 @@ public class King : Piece
 
                 if(canCastle)
                 {
-                    moves.Add(new Vector2Int(0, yPos));
+                    moves.Add(new Moves.Move(new Vector2Int(0, yPos), Moves.Move.Flag.CASTLE));
                 }
             }
 
             //Right
             Piece rightRook = Board.board[7, yPos];
-            if(rightRook != null && rightRook.type == Type.ROOK && !rightRook.moved)
+            if(rightRook != null && rightRook.type == Type.ROOK && rightRook.numMoves == 0)
             {
                 bool canCastle = true;
                 for(int x = Position.x + 1; x < 7; x++)
@@ -516,7 +606,7 @@ public class King : Piece
 
                 if(canCastle)
                 {
-                    moves.Add(new Vector2Int(7, yPos));
+                    moves.Add(new Moves.Move(new Vector2Int(7, yPos), Moves.Move.Flag.CASTLE));
                 }
             }
         }

@@ -134,17 +134,17 @@ public class BoardUI : MonoBehaviour
         //DEBUG
         //ResetKingSquares();
         //
-
+        Moves.Move curMove = currentPossibleMoves.GetMove(end);
         if (currentPossibleMoves.Contains(end))
         {
-            Board.MoveInfo[] moves = Board.MakeMove(start, end);
+            Board.MoveInfo[] moves = Board.MakeMove(start, curMove);
 
             foreach(Board.MoveInfo move in moves)
             {
                 if (move.capturedPiece != null)
                 {
-                    Debug.Log(move.capturedPiece.type);
-                    Destroy(pieces[move.end.x, move.end.y].gameObject);
+                    //Debug.Log(move.capturedPiece.type);
+                    Destroy(pieces[move.capturedPiece.Position.x, move.capturedPiece.Position.y].gameObject);
                 }
 
                 pieces[move.start.x, move.start.y].sortingOrder = 1;
@@ -190,7 +190,7 @@ public class BoardUI : MonoBehaviour
         //DisplayKingSquares();
         for(int i = 0; i < moves.Count; i++)
         {
-            Vector2Int pos = moves[i];
+            Vector2Int pos = moves[i].EndPosition;
             boardSquares[pos.x, pos.y].color *= availablePositions;
         }
     }
@@ -204,7 +204,7 @@ public class BoardUI : MonoBehaviour
         {
             foreach (Moves moves in kingMoves)
             {
-                if (moves._endPositions == null)
+                if (moves.endPositions == null)
                     continue;
                 Color squareCol = ((moves.StartPos.x + moves.StartPos.y) % 2) != 0 ? lightColour : darkColour;
                 boardSquares[moves.StartPos.x, moves.StartPos.y].color = squareCol * kingMovesColour;
@@ -234,7 +234,7 @@ public class BoardUI : MonoBehaviour
             Moves moves = kingMoves[(int)displayType];
             Color squareCol = ((moves.StartPos.x + moves.StartPos.y) % 2) != 0 ? lightColour : darkColour;
 
-            if (moves._endPositions != null)
+            if (moves.endPositions != null)
             {
                 boardSquares[moves.StartPos.x, moves.StartPos.y].color = squareCol * kingMovesColour;
                 for (int i = 0; i < moves.Count; i++)
@@ -272,7 +272,7 @@ public class BoardUI : MonoBehaviour
     {
         for (int i = 0; i < moves.Count; i++)
         {
-            Vector2Int pos = moves[i];
+            Vector2Int pos = moves[i].EndPosition;
             boardSquares[pos.x, pos.y].color = (pos.x + pos.y) % 2 != 0 ? lightColour : darkColour; ;
         }
 

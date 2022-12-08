@@ -1,0 +1,9 @@
+#BlueJ class context
+comment0.target=Piece
+comment1.params=type\ colour\ x\ y
+comment1.target=Piece(Piece.Type,\ Piece.Colour,\ int,\ int)
+comment2.params=
+comment2.target=Moves\ GenerateMoves()
+comment3.params=
+comment3.target=char\ GetPieceChar()
+numComments=4
